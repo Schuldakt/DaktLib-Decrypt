@@ -7,7 +7,10 @@
 ---
 
 ## Phase 1: Foundation
-- [ ] **[S]** CMake scaffolding, export macros
+- [x] **[S]** CMake scaffolding (C++23, compile_commands, platform flags)
+- [x] **[S]** Docs scaffolding (ARCHITECTURE, README)
+- [ ] **[S]** Export macros for library consumers
+- [x] **[S]** Modular include/src directory scaffolding
 - [ ] **[S]** Core value/types (`ChunkHeader`, `ChunkInfo`, `ChunkDecodePlan`)
 - [ ] **[M]** Registries (`MagicRegistry`, `ChunkRegistry`, `CryptoRegistry`, `CompressionRegistry`)
 - [ ] **[S]** IO abstractions (`IInput`, `FileInput`, `MemoryInput`)

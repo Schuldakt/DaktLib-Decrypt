@@ -14,7 +14,7 @@
 │        (format detection, chunk catalog, strategy pick)     │
 ├────────────┬────────────┬────────────┬────────────┬─────────┤
 │ Magic DB   │ Chunk DB   │ Crypto     │ Compression│ Hashcode│
-│ (magic)    │ (layout)   │ (AES/RC4*) │ (LZ/XMem*) │ Calc/Chk │
+│ (magic)    │ (layout)   │ (AES/RC4*) │ (LZ/XMem*) │ Calc/Chk│
 ├────────────┴────────────┴────────────┴────────────┴─────────┤
 │                      IO / Buffers                           │
 └─────────────────────────────────────────────────────────────┘
@@ -82,28 +82,78 @@ namespace dakt::decrypt {
 ```
 DaktLib-Decrypt/
 ├── include/dakt/decrypt/
-│   ├── Decrypt.hpp          # main include
-│   ├── Inspector.hpp
-│   ├── Context.hpp
-│   ├── Detection.hpp
-│   ├── Chunk.hpp
-│   ├── Crypto.hpp
-│   ├── Compression.hpp
-│   ├── Hashcode.hpp
-│   ├── Input.hpp
-│   ├── Results.hpp
-│   └── c_api.h
+│   ├── Decrypt.hpp                 # umbrella include
+│   ├── core/
+│   │   ├── Context.hpp
+│   │   └── Inspector.hpp
+│   ├── detection/
+│   │   ├── MagicDetector.hpp
+│   │   └── ChunkDetector.hpp
+│   ├── chunk/
+│   │   └── Chunk.hpp               # header/info/plan types
+│   ├── registry/
+│   │   ├── MagicRegistry.hpp
+│   │   ├── ChunkRegistry.hpp
+│   │   ├── CryptoRegistry.hpp
+│   │   └── CompressionRegistry.hpp
+│   ├── crypto/
+│   │   ├── Crypto.hpp              # interface
+│   │   ├── XorSimple.hpp
+│   │   ├── RC4Lite.hpp
+│   │   └── AESStub.hpp
+│   ├── compression/
+│   │   ├── Compression.hpp         # interface
+│   │   ├── None.hpp
+│   │   ├── Lz4Lite.hpp
+│   │   └── XMemStub.hpp
+│   ├── hash/
+│   │   ├── Hashcode.hpp
+│   │   └── CRC32.hpp
+│   ├── io/
+│   │   ├── Input.hpp
+│   │   ├── FileInput.hpp
+│   │   └── MemoryInput.hpp
+│   ├── results/
+│   │   └── Results.hpp
+│   ├── api/
+│   │   └── c_api.h
+│   └── Builtins.hpp                # registration helpers
 ├── src/
-│   ├── Inspector.cpp
-│   ├── Context.cpp
-│   ├── Detection.cpp
-│   ├── Chunk.cpp
-│   ├── Crypto.cpp
-│   ├── Compression.cpp
-│   ├── Hashcode.cpp
-│   ├── Input.cpp
-│   ├── Builtins.cpp
-│   └── c_api.cpp
+│   ├── core/
+│   │   ├── Context.cpp
+│   │   └── Inspector.cpp
+│   ├── detection/
+│   │   ├── MagicDetector.cpp
+│   │   └── ChunkDetector.cpp
+│   ├── chunk/
+│   │   └── Chunk.cpp
+│   ├── registry/
+│   │   ├── MagicRegistry.cpp
+│   │   ├── ChunkRegistry.cpp
+│   │   ├── CryptoRegistry.cpp
+│   │   └── CompressionRegistry.cpp
+│   ├── crypto/
+│   │   ├── Crypto.cpp
+│   │   ├── XorSimple.cpp
+│   │   ├── RC4Lite.cpp
+│   │   └── AESStub.cpp
+│   ├── compression/
+│   │   ├── Compression.cpp
+│   │   ├── None.cpp
+│   │   ├── Lz4Lite.cpp
+│   │   └── XMemStub.cpp
+│   ├── hash/
+│   │   ├── Hashcode.cpp
+│   │   └── CRC32.cpp
+│   ├── io/
+│   │   ├── Input.cpp
+│   │   ├── FileInput.cpp
+│   │   └── MemoryInput.cpp
+│   ├── results/
+│   │   └── Results.cpp
+│   ├── api/
+│   │   └── c_api.cpp
+│   └── Builtins.cpp
 ├── tests/
 ├── CMakeLists.txt
 ├── ARCHITECTURE.md
@@ -124,54 +174,60 @@ DaktLib-Decrypt/
 - `ChunkInfo`: header + derived info (expected type name, codec hints, endian).
 - `ChunkDecodePlan`: selected crypto/compression/hasher identifiers.
 
-## Registries
-- `MagicRegistry`: signature patterns (offset + bytes, mask support) mapped to format IDs.
-- `ChunkRegistry`: known chunk types with parsers for headers/layout.
-- `CryptoRegistry`: decryptors keyed by name/ID; pluggable.
-- `CompressionRegistry`: decompressors keyed by name/ID; pluggable.
-- Registries are modifiable at runtime for new formats (no recompile required if exposed through C API plus dynamic registration hooks).
+## Namespace Structure (stable public surface)
 
-## Crypto / Hash / Compression
-- Interfaces are small and stateless; instances created per operation.
-- Built-ins are minimal and dependency-free; stubs for heavier algorithms allow future drop-in replacements.
-- Hashcode check: CRC32 baseline; room for custom hash used by specific CryEngine chunks.
+```cpp
+namespace dakt::decrypt {
+    // Core orchestrator
+    class Inspector;            // entry point
+    class Context;              // owns registries/options
 
-## Reporting
-- `ChunkReport`: chunk id/type, offsets/sizes, chosen crypto/comp, hash validity, notes.
-- `FileReport`: detected format(s), chunk list, unknown chunk summaries, warnings.
-- Designed for tooling consumption and logging.
+    // Detection
+    class MagicDetector;        // magic numbers and signatures
+    class ChunkDetector;        // chunk header scanning
 
-## C API Sketch
+    // Registries
+    class MagicRegistry;
+    class ChunkRegistry;
+    class CryptoRegistry;
+    class CompressionRegistry;
 
-```c
-// dakt_decrypt.h
+    // Chunk model
+    struct ChunkHeader;
+    struct ChunkInfo;           // type, offset, size, flags
+    struct ChunkDecodePlan;     // chosen crypto/comp/hasher
 
-typedef struct DaktDecryptContext* DaktDecryptContextHandle;
-typedef struct DaktDecryptReport* DaktDecryptReportHandle;
+    // Crypto / Compression / Hash interfaces
+    class ICrypto;              // decrypt
+    class IHasher;              // chunk hashcode calc/check
+    class ICompressor;          // decompress (if needed)
 
-typedef enum {
-    DAKT_DECRYPT_OK = 0,
-    DAKT_DECRYPT_ERR_IO,
-    DAKT_DECRYPT_ERR_UNRECOGNIZED,
-    DAKT_DECRYPT_ERR_DECRYPT,
-    DAKT_DECRYPT_ERR_DECOMPRESS
-} DaktDecryptResult;
+    // Built-ins (minimal, extendable)
+    namespace crypto { class XorSimple; class RC4Lite; class AESStub; }
+    namespace compress { class None; class Lz4Lite; class XMemStub; }
+    namespace hash { class CRC32; }
 
-DAKT_API DaktDecryptContextHandle dakt_decrypt_create(void);
-DAKT_API void dakt_decrypt_destroy(DaktDecryptContextHandle ctx);
+    // IO
+    class IInput;               // abstract reader
+    class FileInput;
+    class MemoryInput;
 
-DAKT_API DaktDecryptResult dakt_decrypt_from_file(DaktDecryptContextHandle ctx, const char* path);
-DAKT_API DaktDecryptResult dakt_decrypt_from_memory(DaktDecryptContextHandle ctx, const void* data, size_t size);
+    // Results
+    struct DetectionResult;
+    struct ChunkReport;
+    struct FileReport;
 
-DAKT_API const char* dakt_decrypt_report_format(DaktDecryptReportHandle rpt);
-DAKT_API size_t dakt_decrypt_report_chunk_count(DaktDecryptReportHandle rpt);
-DAKT_API /* chunk info getters */
-
-DAKT_API void dakt_decrypt_report_destroy(DaktDecryptReportHandle rpt);
+    // C API handles
+    struct CContext;
+    struct CReport;
+}
 ```
 
-## Thread Safety
-- Context is not thread-safe; create per-thread contexts.
+### Modularity Notes
+- Each interface (crypto/compression/hash/io/registry) lives in its own subdirectory with its built-ins alongside, making it easy to add new implementations without touching core orchestrator code.
+- `Builtins` module centralizes default registration so downstream users can opt-out or swap modules.
+- `api/` isolates the C bindings from the C++ surface to keep ClangSharp-friendly types stable.
+- Registry and detector code is split from chunk modeling, keeping pure data structures header-only where possible.
 - Stateless registries can be shared read-only once built; mutation not thread-safe.
 - IO and decode operate on caller thread only.
 
